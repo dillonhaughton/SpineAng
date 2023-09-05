@@ -61,7 +61,7 @@ def get_projection(axis, normal):
 	return proj
 
 
-class vertebral_orientation_detection:
+class vertebrae:
 	def __init__(self, volume, segments, active_read_log=os.listdir('Data')):
 		self.volume  = volume
 		self.segments= segments
@@ -304,6 +304,7 @@ class vertebral_orientation_detection:
 		#self.plot += k3d.line(spinous + center, name='spinous',width=0.3)
 
 	def show_plot(self):
+		# Will need to update as features continue to develop.
 		values = self.large_data
 		if self.large_data.columns.isin(['trimesh']).any():
 			for index, row in self.large_data.iterrows():
@@ -327,132 +328,170 @@ class vertebral_orientation_detection:
 
 				self.plot +=  k3d.vectors(origins, axises, name='Axis')
 
+		if self.large_data.columns.isin(['V_Body']).any():
+			for index, row in self.large_data.iterrows():
+				#print(row)
+				center = row['Center']
+				mesh = row['V_Body']
+				self.plot += k3d.mesh(mesh.vertices + center, mesh.faces,color=0x42EBFF)		
+
 
 		self.plot.display()		
 
 
+	def seperate_symmetry_body(self):
+		frame = self.large_data
+		slice_view = self.large_data[self.large_data['SegmentID'].isin(self.segments)]
+		#slice_view = frame[frame['SegmentID'].isin(['Segment_18'])]
 
+		segmentIDs   = slice_view['SegmentID'].values
+		segmentIndex = slice_view.index
+		bodys = []
+		bodys_c = []
 
-'''
-				#print('4.1 Seperating Vertebral body for x and z based symmetry plane ')
-				# Yield slice from symmetry plane
-				slicedup = trimesh.intersections.mesh_plane(looking_at, sym_normaly, sym_pointy)
-				slice_k3d = trimesh.load_path(slicedup)
-				center_path = slice_k3d.centroid
-				both = slice_k3d.discrete
+		for i,j in zip(segmentIndex, segmentIDs):
+			looking_at = frame.loc[i, 'trimesh'] 
+			trimesh.repair.fix_inversion(looking_at)
+
+			sym_normaly = frame.loc[i, 'Sym_V']
+			sym_pointy  = frame.loc[i, 'Sym_P']
+			
+
+		
+			#print('4.1 Seperating Vertebral body for x and z based symmetry plane ')
+			# Yield slice from symmetry plane
+			slicedup = trimesh.intersections.mesh_plane(looking_at, sym_normaly, sym_pointy)
+			slice_k3d = trimesh.load_path(slicedup)
+			center_path = slice_k3d.centroid
+			both = slice_k3d.discrete
 				
 				# Will yield two slices one for the spinous process and one for vertebral body
-				both_sum = []
-				for y in both:
+			both_sum = []
+			for y in both:
 					
-					both_sum += [np.max(y[:,1])]
+				both_sum += [np.max(y[:,1])]
 
-				both_sum = np.array(both_sum)    
+			both_sum = np.array(both_sum)    
 				# Determine which is vertebral body by seeing which is more positive
-				body = both[np.argsort(both_sum)[-1]]
-				spinous = both[np.argsort(both_sum)[-2]]
+			body = both[np.argsort(both_sum)[-1]]
+			spinous = both[np.argsort(both_sum)[-2]]
 
 				# Get box of vertebral body giving points to estimate initial values
 				# for vertebral body seperation
-				body_path = trimesh.load_path(body)
-				body_path_2d = body_path.to_planar()
-				bounds_2d = trimesh.bounds.oriented_bounds_2D(body_path_2d[0].vertices)
-				box_2d = trimesh.path.creation.rectangle(bounds_2d[1])
-				box    = box_2d.apply_transform(np.linalg.inv(bounds_2d[0]))
-				box_3d = box.to_3D(transform = body_path_2d[1])
-				bodys_center = box_3d.centroid
-				box_3d = box_3d.discrete
-				mob = (box_3d[0][0] + box_3d[0][1] + box_3d[0][2] + box_3d[0][3])/4
+			body_path = trimesh.load_path(body)
+			body_path_2d = body_path.to_planar()
+			bounds_2d = trimesh.bounds.oriented_bounds_2D(body_path_2d[0].vertices)
+			box_2d = trimesh.path.creation.rectangle(bounds_2d[1])
+			box    = box_2d.apply_transform(np.linalg.inv(bounds_2d[0]))
+			box_3d = box.to_3D(transform = body_path_2d[1])
+			bodys_center = box_3d.centroid
+			box_3d = box_3d.discrete
+			mob = (box_3d[0][0] + box_3d[0][1] + box_3d[0][2] + box_3d[0][3])/4
 
-				max_ys = spinous[np.argmax(spinous[:,1])]
-				min_yb = body[np.argmin(body[:,1])]
-				mid_point = ((max_ys + min_yb)/2)
+			max_ys = spinous[np.argmax(spinous[:,1])]
+			min_yb = body[np.argmin(body[:,1])]
+			mid_point = ((max_ys + min_yb)/2)
 
-				box_3d = np.delete(box_3d, -1, axis=1)
-				yb = box_3d[0][np.argsort(box_3d[0][:,1])[:2]]
-				min_zb = yb[np.argsort(yb[:,2])[0]]
-				max_zb = yb[np.argsort(yb[:,2])[1]]
+			box_3d = np.delete(box_3d, -1, axis=1)
+			yb = box_3d[0][np.argsort(box_3d[0][:,1])[:2]]
+			min_zb = yb[np.argsort(yb[:,2])[0]]
+			max_zb = yb[np.argsort(yb[:,2])[1]]
 
-				orthogs_r = np.cross(sym_normaly, max_zb - min_zb)
-				orthogs_r = orthogs_r / np.linalg.norm(orthogs_r)
+			orthogs_r = np.cross(sym_normaly, max_zb - min_zb)
+			orthogs_r = orthogs_r / np.linalg.norm(orthogs_r)
 
-				# Initial planes to reflect for x and z
-				for_x = max_zb - min_zb
-				for_x = for_x / np.linalg.norm(for_x)
+			# Initial planes to reflect for x and z
+			for_x = max_zb - min_zb
+			for_x = for_x / np.linalg.norm(for_x)
 				
-				start = (max_zb + min_zb)/2
-				startv = mid_point - start
-				startv = startv/np.linalg.norm(startv)
+			start = (max_zb + min_zb)/2
+			startv = mid_point - start
+			startv = startv/np.linalg.norm(startv)
 				
+			for_z = np.cross(sym_normaly, for_x)
+			for_z = for_z / np.linalg.norm(for_z)
 
-				for_z = np.cross(sym_normaly, for_x)
-				for_z = for_z / np.linalg.norm(for_z)
-
-				right = trimesh.intersections.slice_mesh_plane(looking_at,  sym_normaly, [mid_point[0], mid_point[1], mid_point[2]], cap=True)
-				left  = trimesh.intersections.slice_mesh_plane(looking_at, -sym_normaly, [mid_point[0], mid_point[1], mid_point[2]], cap=True)
+			right = trimesh.intersections.slice_mesh_plane(looking_at,  sym_normaly, [mid_point[0], mid_point[1], mid_point[2]], cap=True)
+			left  = trimesh.intersections.slice_mesh_plane(looking_at, -sym_normaly, [mid_point[0], mid_point[1], mid_point[2]], cap=True)
 
 				
-				def reduction_function_end():
+			def reduction_function_end():
+				# This optimization is terrible need to adjust
+				# Function to seperate vertebral body using two planes
+				# correct position and orientation is determined by highest percent of 
+				# volume / volume of bounding box
+				index= 0 
+				ratio = []
+				values = []
+				
+				# These values may need to be tinkered with in order to optimize results
+				# may try substuting reflection instead of orthogs.
+				backwards = np.arange(0,20,1)
+				inwards   = np.arange(-0.3,0.3,0.1)
+				for lu in backwards:
+					for wu in inwards:
+						#plot = k3d.plot()
+						plane1  = np.array([orthogs_r[0]-wu, orthogs_r[1], orthogs_r[2]])
+						plane1 = plane1/np.linalg.norm(plane1)
 
-					# Function to seperate vertebral body using two planes
-					# correct position and orientation is determined by highest percent of 
-					# volume / volume of bounding box
-					index= 0 
-					ratio = []
-					values = []
+						plane2  = -reflect_vector(plane1, -for_z)
+						plane2  = plane2/np.linalg.norm(plane2)
+						
+						center = lu*(startv) + start
+						initial1 = trimesh.intersections.slice_mesh_plane(right, -plane1, center, cap=True)
+						initial2 = trimesh.intersections.slice_mesh_plane(left, -plane2, center, cap=True)
+
+						final = trimesh.util.concatenate(initial1, initial2)
+						#plot += k3d.points(center)
+						#plot += k3d.mesh(final.vertices, final.faces)
+						#plot.display()
+						
+						volume  = final.volume
+						bounds  = trimesh.bounds.oriented_bounds(final)[1]
+
+						V       = np.prod(bounds)
+						surface = volume/V
+						values += [[lu, wu]]
+						ratio += [surface]
 					
-					# These values may need to be tinkered with in order to optimize results
-					# may try substuting reflection instead of orthogs.
-					backwards = np.arange(0,20,1)
-					inwards   = np.arange(-0.3,0.3,0.1)
-					for lu in backwards:
-						for wu in inwards:
-							#plot = k3d.plot()
-							plane1  = np.array([orthogs_r[0]-wu, orthogs_r[1], orthogs_r[2]])
-							plane1 = plane1/np.linalg.norm(plane1)
+					
+				find = np.argmax(ratio)
+				return values[find]
 
-							plane2  = -reflect_vector(plane1, -for_z)
-							plane2  = plane2/np.linalg.norm(plane2)
-							
-							center = lu*(startv) + start
-							initial1 = trimesh.intersections.slice_mesh_plane(right, -plane1, center, cap=True)
-							initial2 = trimesh.intersections.slice_mesh_plane(left, -plane2, center, cap=True)
-
-							final = trimesh.util.concatenate(initial1, initial2)
-							#plot += k3d.points(center)
-							#plot += k3d.mesh(final.vertices, final.faces)
-							#plot.display()
-							
-							volume  = final.volume
-							bounds  = trimesh.bounds.oriented_bounds(final)[1]
-
-							V       = np.prod(bounds)
-							surface = volume/V
-							values += [[lu, wu]]
-							ratio += [surface]
-						
-						
-					find = np.argmax(ratio)
-					return values[find]
-
-				lu, wu = reduction_function_end()   
+			lu, wu = reduction_function_end()   
 
 
-				orthogs_r = np.array([orthogs_r[0]-wu, orthogs_r[1], orthogs_r[2]])
-				orthogs_r = orthogs_r / np.linalg.norm(orthogs_r)
-				orthogs_l = -reflect_vector(orthogs_r, -for_z)
-				#orthogs_l = 2 * np.dot(sym_normaly, orthogs_r) * sym_normaly - orthogs_r
-				#orthogs_l = np.array([orthogs_r[0]+wu, orthogs_r[1], orthogs_r[2]])
-				orthogs_l = orthogs_l/np.linalg.norm(orthogs_l)
+			orthogs_r = np.array([orthogs_r[0]-wu, orthogs_r[1], orthogs_r[2]])
+			orthogs_r = orthogs_r / np.linalg.norm(orthogs_r)
+			orthogs_l = -reflect_vector(orthogs_r, -for_z)
+			#orthogs_l = 2 * np.dot(sym_normaly, orthogs_r) * sym_normaly - orthogs_r
+			#orthogs_l = np.array([orthogs_r[0]+wu, orthogs_r[1], orthogs_r[2]])
+			orthogs_l = orthogs_l/np.linalg.norm(orthogs_l)
 
-				true_value = lu*(startv) + start
+			true_value = lu*(startv) + start
 
-				first = trimesh.intersections.slice_mesh_plane(right, -orthogs_r, true_value, cap=True)
-				second = trimesh.intersections.slice_mesh_plane(left, -orthogs_l, true_value, cap=True)
+			first = trimesh.intersections.slice_mesh_plane(right, -orthogs_r, true_value, cap=True)
+			second = trimesh.intersections.slice_mesh_plane(left, -orthogs_l, true_value, cap=True)
 
-				v_body = trimesh.util.concatenate(first, second)
-				v_body_center = v_body.center_mass
+			v_body = trimesh.util.concatenate(first, second)
+			
+			v_body_center = v_body.center_mass
+			
+			bodys += [v_body]
+			bodys_c += [v_body_center]
 
+		self.large_data['V_Body'] = bodys
+		self.large_data['V_Body_Center'] = bodys_c
+
+	
+
+	def calculate_symmetry_side(self, body):	
+		print('Upcoming update')
+
+	def calculate_symmetry_flex(self, body):
+		print('Upcoming update')	
+'''
+				
 				print('5.1 Reflecting Vertebral Body')
 				reflect_x = reflect_points(v_body.vertices, np.array(mob), for_x)
 				reflect_z = reflect_points(v_body.vertices, np.array(mob), np.array(for_z))
